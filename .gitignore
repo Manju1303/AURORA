@@ -1,0 +1,13 @@
+.env
+__pycache__/
+*.pyc
+assets/*.png.tmp
+.vscode/
+venv/
+.gemini/
+aurora_memory.db
+temp_audio/
+temp_chunk_*.mp3
+memory.json
+aurora_conversation.jsonl
+verify_v4.py

@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AURORA — AI Virtual Being</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@200;400;600;800&family=Space+Grotesk:wght@300;500;700&family=Orbitron:wght@400;600;800&display=swap');
+
+  :root {
+    --primary: #00f2ff;
+    --accent: #ff00c8;
+    --bg: #000000;
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { overflow: hidden; height:100%; width:100%; background: #000; color: #fff; font-family: 'Outfit', sans-serif; }
+
+  #three-canvas { position: fixed; inset: 0; z-index: 0; }
+
+  /* ===== MINIMAL LIVE CAPTIONS ===== */
+  .captions-panel {
+    position: fixed; bottom: 0; left: 0; width: 100%; height: 80px;
+    background: linear-gradient(to top, rgba(0,0,0,0.95), transparent);
+    z-index: 100; overflow: hidden;
+    padding: 10px 40px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    pointer-events: none;
+  }
+  
+  .caption-entry {
+    display: flex; gap: 12px; align-items: center; justify-content: center;
+    animation: captionSlide 0.3s ease-out forwards;
+  }
+  
+  @keyframes captionSlide {
+    0% { opacity: 0; transform: translateY(10px); }
+    100% { opacity: 1; transform: translateY(0); }
+  }
+  
+  .caption-role {
+    font-size: 8px; font-weight: 800; color: var(--primary);
+    text-transform: uppercase; letter-spacing: 2px;
+    font-family: 'Orbitron', sans-serif;
+  }
+  
+  .caption-text {
+    font-size: 20px; font-weight: 400; color: #fff;
+    text-align: center; font-family: 'Space Grotesk', sans-serif;
+    text-shadow: 0 0 10px rgba(0,242,255,0.4);
+  }
+  
+  .caption-entry.user .caption-role { color: var(--accent); }
+  .caption-entry.user .caption-text { opacity: 0.9; }
+
+  /* ===== EMOJIS & HAND ===== */
+  .emoji-container { position: fixed; inset: 0; pointer-events: none; z-index: 60; overflow: hidden; }
+  .floating-emoji {
+    position: absolute; font-size: 32px;
+    animation: emojiFloat 3s ease-out forwards;
+    pointer-events: none;
+  }
+  @keyframes emojiFloat {
+    0% { opacity: 0; transform: translateY(0) scale(0.3); }
+    10% { opacity: 1; transform: translateY(-20px) scale(1.1); }
+    100% { opacity: 0; transform: translateY(-150px) scale(0.6); }
+  }
+
+  .hand-greeting {
+    position: fixed; top: 45%; right: 28%; font-size: 56px; z-index: 55;
+    opacity: 0; transition: opacity 0.5s;
+    filter: drop-shadow(0 0 12px rgba(0,242,255,0.5));
+  }
+  .hand-greeting.show { opacity: 1; animation: handShake 0.7s ease-in-out 3; }
+  @keyframes handShake {
+    0%, 100% { transform: rotate(0deg); }
+    50% { transform: rotate(15deg); }
+  }
+
+  /* ===== HUD STABLE (HIDDEN BY DEFAULT) ===== */
+  .hud-hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<canvas id="three-canvas"></canvas>
+<div class="emoji-container" id="emojiContainer"></div>
+<div class="hand-greeting" id="handGreeting">👋</div>
+<div class="captions-panel" id="captionsPanel"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+
+<script>
+const canvas3d = document.getElementById('three-canvas');
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(40, innerWidth/innerHeight, 0.1, 1000);
+camera.position.set(0, 0, 4.5);
+
+const renderer = new THREE.WebGLRenderer({ canvas: canvas3d, alpha: true, antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(devicePixelRatio);
+
+window.addEventListener('resize', () => {
+    camera.aspect = innerWidth/innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+});
+
+// --- Lights ---
+scene.add(new THREE.AmbientLight(0xffffff, 1.0));
+const dirLight = new THREE.DirectionalLight(0x00f2ff, 1.5);
+dirLight.position.set(2, 2, 5);
+scene.add(dirLight);
+
+// --- 3D Starfield ---
+function addStars() {
+    const starCount = 3500;
+    const starGeo = new THREE.BufferGeometry();
+    const starPos = new Float32Array(starCount * 3);
+    for (let i = 0; i < starCount; i++) {
+        starPos[i*3] = (Math.random() - 0.5) * 50;
+        starPos[i*3+1] = (Math.random() - 0.5) * 50;
+        starPos[i*3+2] = (Math.random() - 0.5) * 50;
+    }
+    starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+    const starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 0.02, transparent: true, opacity: 0.6 });
+    const starField = new THREE.Points(starGeo, starMat);
+    scene.add(starField);
+    return starField;
+}
+const starField = addStars();
+
+// --- 3D Morph Target Avatar ---
+let model3d = null;
+let mixer = null;
+let actions = {};
+const loader = new THREE.GLTFLoader();
+
+loader.load('avatar.glb', (gltf) => {
+    model3d = gltf.scene;
+    // Optimize for 25cm Stand
+    model3d.scale.set(1.9, 1.9, 1.9);
+    model3d.position.y = -1.6;
+    scene.add(model3d);
+    
+    mixer = new THREE.AnimationMixer(model3d);
+    gltf.animations.forEach(clip => {
+        actions[clip.name.toLowerCase()] = mixer.clipAction(clip);
+    });
+    
+    if (actions['idle']) actions['idle'].play();
+}, undefined, (err) => {
+    console.log("No 3D model found. Falling back to Neural Orb...");
+    createNeuralOrb();
+});
+
+function createNeuralOrb() {
+    const geo = new THREE.IcosahedronGeometry(1.4, 4);
+    const mat = new THREE.PointsMaterial({ color: 0x00f2ff, size: 0.02, transparent: true, opacity: 0.8 });
+    const orb = new THREE.Points(geo, mat);
+    scene.add(orb);
+    model3d = orb;
+}
+
+function setAnimation(name) {
+    if (!mixer || !actions[name]) return;
+    Object.values(actions).forEach(a => a.fadeOut(0.3));
+    actions[name].reset().fadeIn(0.3).play();
+}
+
+let isSpeaking = false;
+let isListening = false;
+let time = 0;
+
+function animate() {
+    requestAnimationFrame(animate);
+    const dt = 0.016;
+    time += dt;
+
+    if (mixer) mixer.update(dt);
+    if (starField) starField.rotation.y += 0.0002;
+
+    if (model3d) {
+        model3d.rotation.y = Math.sin(time * 0.4) * 0.1;
+        
+        // Lip Sync & Interactive States
+        if (isSpeaking) {
+            model3d.traverse(child => {
+                if (child.isMesh && child.morphTargetInfluences) {
+                    const mouth = child.morphTargetDictionary ? (child.morphTargetDictionary['mouthOpen'] || child.morphTargetDictionary['jawOpen']) : null;
+                    if (mouth !== null) child.morphTargetInfluences[mouth] = 0.2 + Math.sin(time * 25) * 0.4;
+                }
+            });
+        }
+    }
+    renderer.render(scene, camera);
+}
+animate();
+
+// --- Communications ---
+const captionsPanel = document.getElementById('captionsPanel');
+function addCaption(role, text) {
+    if (!text) return;
+    captionsPanel.innerHTML = ""; // Clear for live look
+    const entry = document.createElement('div');
+    entry.className = `caption-entry ${role.toLowerCase()}`;
+    entry.innerHTML = `<div class="caption-role">${role}</div><div class="caption-text">${text}</div>`;
+    captionsPanel.appendChild(entry);
+}
+
+const ws = new WebSocket('ws://localhost:8080');
+ws.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  if (data.speech) addCaption('AURORA', data.speech);
+  if (data.user_text) {
+      addCaption('USER', data.user_text);
+      if (typeof spawnEmoji === 'function') spawnEmoji('💬');
+  }
+  if (data.speaking === true) { isSpeaking = true; isListening = false; setAnimation('talk'); }
+  if (data.speaking === false) { isSpeaking = false; setAnimation('idle'); }
+  if (data.stage === 5) { isListening = true; isSpeaking = false; setAnimation('listening'); }
+};
+
+// Emoji & Hand Logic
+const emojiSys = document.getElementById('emojiContainer');
+function spawnEmoji(emoji) {
+    const el = document.createElement('div');
+    el.className = 'floating-emoji';
+    el.textContent = emoji;
+    el.style.left = (Math.random() * 60 + 20) + '%';
+    el.style.bottom = '10%';
+    emojiSys.appendChild(el);
+    setTimeout(() => el.remove(), 3000);
+}
+</script>
+</body>
+</html>
